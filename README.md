@@ -22,3 +22,17 @@ cd ~/sdn-lb && LB_ALGO=load ~/sdn-venv/bin/osken-manager lb_controller.py
 
 ##### Terminal 2
 sudo mn -c && cd ~/sdn-lb && sudo python3 test_load.py
+
+
+### 4. Implementing GUI (In Process)
+#### Terminal 1
+cd ~/sdn-lb && ~/sdn-venv/bin/osken-manager lb_controller.py
+
+#### Terminal 2
+sudo mn -c && cd ~/sdn-lb && sudo python3 topo.py
+
+on mininet CLI:
+c1 sh -c 'for i in $(seq 12); do curl -s 10.0.0.100; done'
+
+#### Terminal 3
+cd ~/sdn-lb && sudo python3 gui_server.py
