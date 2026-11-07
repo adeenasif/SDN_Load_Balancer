@@ -1,8 +1,9 @@
 import csv, os, time
 from os_ken.base import app_manager
 from os_ken.controller import ofp_event
-from os_ken.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, set_ev_cls
+from os_ken.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, DEAD_DISPATCHER, set_ev_cls
 from os_ken.ofproto import ofproto_v1_3
+from os_ken.lib import hub
 from os_ken.lib.packet import packet, ethernet, arp, ipv4, tcp, ether_types
 
 VIP = '10.0.0.100'
@@ -12,10 +13,11 @@ SERVERS = [
     {'name': 'srv2', 'ip': '10.0.0.2', 'mac': '00:00:00:00:00:02'},
     {'name': 'srv3', 'ip': '10.0.0.3', 'mac': '00:00:00:00:00:03'},
 ]
-ALGORITHMS = ('rr', 'lc')   # F6: 'load' (F5) is added in the next step
+ALGORITHMS = ('rr', 'lc', 'load')
 DEFAULT_ALGORITHM = os.environ.get('LB_ALGO', 'rr')
-ASSIGN_LOG = os.environ.get('LB_LOG', 'assignments.csv')   # relative to where you start the controller
-IDLE_TIMEOUT = int(os.environ.get('LB_IDLE', '30'))        # seconds a flow survives without traffic
+ASSIGN_LOG = os.environ.get('LB_LOG', 'assignments.csv')    # relative to where you start the controller
+IDLE_TIMEOUT = int(os.environ.get('LB_IDLE', '30'))         # seconds a flow survives without traffic
+POLL_INTERVAL = float(os.environ.get('LB_POLL', '2'))       # seconds between port-stats requests (F5)
 
 
 class LoadBalancer(app_manager.OSKenApp):
@@ -25,8 +27,11 @@ class LoadBalancer(app_manager.OSKenApp):
         super().__init__(*args, **kwargs)
         self.connections = {}     # (client_ip, client_port, vip_port) -> server
         self.mac_to_port = {}
+        self.dps = {}             # connected switches, for the stats poller
         self.server_names = [s['name'] for s in SERVERS]
-        self.active = dict.fromkeys(self.server_names, 0)   # F4: live flows per server (never reset)
+        self.active = dict.fromkeys(self.server_names, 0)     # F4: live flows per server (never reset)
+        self.rate = dict.fromkeys(self.server_names, 0.0)     # F5: bytes/s per server port (never reset)
+        self.last_stats = {}      # server name -> (timestamp, rx+tx bytes)
         self.reset_stats()
         self.algorithm = 'rr'
         if DEFAULT_ALGORITHM in ALGORITHMS:
@@ -37,8 +42,9 @@ class LoadBalancer(app_manager.OSKenApp):
         self._csv = csv.writer(self._log)
         self._csv.writerow(['time', 'algorithm', 'client_ip', 'client_port', 'server'])
         self._log.flush()
-        self.logger.info('LB: algorithm=%s idle_timeout=%ss, logging assignments to %s',
-                         self.algorithm, IDLE_TIMEOUT, ASSIGN_LOG)
+        self.monitor_thread = hub.spawn(self._monitor)
+        self.logger.info('LB: algorithm=%s idle_timeout=%ss poll=%ss, logging assignments to %s',
+                         self.algorithm, IDLE_TIMEOUT, POLL_INTERVAL, ASSIGN_LOG)
 
     # ---------- F6: algorithm interface ----------
     def set_algorithm(self, algo):
@@ -49,18 +55,23 @@ class LoadBalancer(app_manager.OSKenApp):
         self.logger.info('LB: algorithm set to %s (stats reset)', algo)
         return True
 
-    def pick_server(self):
+    def _pick_min(self, metric):
+        # scan starting at rr_index so ties rotate instead of always picking srv1
         n = len(SERVERS)
+        order = [SERVERS[(self.rr_index + i) % n] for i in range(n)]
+        srv = min(order, key=metric)
+        self.rr_index = (SERVERS.index(srv) + 1) % n
+        return srv
+
+    def pick_server(self):
         if self.algorithm == 'rr':
-            srv = SERVERS[self.rr_index % n]
+            srv = SERVERS[self.rr_index % len(SERVERS)]
             self.rr_index += 1
             return srv
         if self.algorithm == 'lc':
-            # scan starting at rr_index so ties rotate instead of always picking srv1
-            order = [SERVERS[(self.rr_index + i) % n] for i in range(n)]
-            srv = min(order, key=lambda s: self.active[s['name']])
-            self.rr_index = (SERVERS.index(srv) + 1) % n
-            return srv
+            return self._pick_min(lambda s: self.active[s['name']])
+        if self.algorithm == 'load':
+            return self._pick_min(lambda s: self.rate[s['name']])
         raise NotImplementedError(self.algorithm)
 
     # ---------- F7: statistics ----------
@@ -73,14 +84,51 @@ class LoadBalancer(app_manager.OSKenApp):
         s = sum(xs)
         return (s * s) / (len(xs) * sum(x * x for x in xs)) if s else 1.0
 
+    def rates_mbps(self):
+        return {n: round(r * 8 / 1e6, 2) for n, r in self.rate.items()}
+
     def record_assignment(self, srv, ip, tp):
         self.total[srv['name']] += 1
         self.active[srv['name']] += 1
         self._csv.writerow([time.strftime('%H:%M:%S'), self.algorithm, ip.src, tp.src_port, srv['name']])
         self._log.flush()
-        self.logger.info('LB: NEW %s:%s -> %s [%s] total=%s active=%s jain=%.3f',
+        self.logger.info('LB: NEW %s:%s -> %s [%s] total=%s active=%s rate_mbps=%s jain=%.3f',
                          ip.src, tp.src_port, srv['name'], self.algorithm,
-                         self.total, self.active, self.jain())
+                         self.total, self.active, self.rates_mbps(), self.jain())
+
+    # ---------- F5: port-statistics polling ----------
+    @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, DEAD_DISPATCHER])
+    def state_change_handler(self, ev):
+        dp = ev.datapath
+        if ev.state == MAIN_DISPATCHER:
+            self.dps[dp.id] = dp
+        elif ev.state == DEAD_DISPATCHER:
+            self.dps.pop(dp.id, None)
+            self.last_stats.clear()
+            self.rate = dict.fromkeys(self.server_names, 0.0)
+
+    def _monitor(self):
+        while True:
+            for dp in list(self.dps.values()):
+                parser, ofp = dp.ofproto_parser, dp.ofproto
+                dp.send_msg(parser.OFPPortStatsRequest(dp, 0, ofp.OFPP_ANY))
+            hub.sleep(POLL_INTERVAL)
+
+    @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
+    def port_stats_reply_handler(self, ev):
+        now = time.monotonic()
+        by_port = {st.port_no: st for st in ev.msg.body}
+        for s in SERVERS:
+            st = by_port.get(self.mac_to_port.get(s['mac']))
+            if st is None:
+                continue                              # port not learned yet
+            total = st.rx_bytes + st.tx_bytes
+            prev = self.last_stats.get(s['name'])
+            if prev is not None:                      # first reading only stores a baseline
+                dt = now - prev[0]
+                if dt > 0:
+                    self.rate[s['name']] = (total - prev[1]) / dt if total >= prev[1] else 0.0
+            self.last_stats[s['name']] = (now, total)
 
     # ---------- switch plumbing ----------
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
