@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDN Load Balancer | Network Dashboard</title>
+<style>
+  :root{
+    --bg:#0a1120; --panel:#0f1a2e; --panel2:#132038; --line:#1f2f4b; --line2:#2a3d5e;
+    --text:#e6edf8; --muted:#8fa3c2; --faint:#62779a;
+    --blue:#2f6df6; --blue2:#5b8cff; --green:#22c58b; --amber:#f2a93b; --red:#ef5b5b; --purple:#8b6cf0;
+    --s1:#38bdf8; --s2:#34d399; --s3:#fb923c;
+    --r:12px;
+  }
+  *{box-sizing:border-box}
+  html{color-scheme:dark}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif;font-variant-numeric:tabular-nums}
+  .wrap{max-width:1280px;margin:0 auto;padding:22px 24px 40px}
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+  .eyebrow{font-size:11px;letter-spacing:.14em;color:var(--blue2);font-weight:700;text-transform:uppercase}
+  h1{margin:4px 0 2px;font-size:28px;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:12px}
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;border:1px solid var(--line2);font-size:12px;background:var(--panel)}
+  .pill i{width:8px;height:8px;border-radius:50%;background:var(--faint)}
+  .pill.ok{color:#7be3bb;border-color:#1c6a52;background:#0c2a27}.pill.ok i{background:var(--green)}
+  .pill.warn{color:#f6cb86;border-color:#6d4d17;background:#2a2112}.pill.warn i{background:var(--amber)}
+  .pill.bad{color:#ffa3a3;border-color:#7a2b2b;background:#2c1517}.pill.bad i{background:var(--red)}
+  .banner{display:none;margin:0 0 18px;padding:12px 16px;border-radius:var(--r);border:1px solid #6d4d17;background:#2a2112;color:#f6cb86}
+  .banner.bad{border-color:#7a2b2b;background:#2c1517;color:#ffb4b4}
+  .banner.show{display:block}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px}
+  .card h2{margin:0;font-size:15px}
+  .card .hint{color:var(--muted);font-size:12px;margin-top:2px}
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:18px}
+  .kpi .l{font-size:12px;color:var(--muted)}
+  .kpi .v{font-size:28px;font-weight:700;margin-top:6px;letter-spacing:-.01em}
+  .kpi .s{font-size:11px;color:var(--faint);margin-top:2px;min-height:15px}
+  .grid2{align-items:start;display:grid;grid-template-columns:minmax(0,1.9fr) minmax(300px,1fr);gap:18px;margin-bottom:18px}
+  .row3{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-bottom:18px}
+  .charts{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+  .toolbar{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .tbtn{background:var(--panel2);border:1px solid var(--line2);color:var(--text);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer}
+  .tbtn:hover{border-color:var(--blue2)}
+  #topo{width:100%;height:auto;display:block;margin-top:12px;border:1px solid var(--line);border-radius:10px;background:
+        radial-gradient(circle at 1px 1px,#1a2a45 1px,transparent 0) 0 0/22px 22px,#0b1424}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;font-size:12px;color:var(--muted)}
+  .legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:var(--c)}
+  label.f{display:block;font-size:12px;color:var(--muted);margin:16px 0 6px}
+  .lr{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--muted);margin-top:18px}
+  .lr b{color:var(--blue2);font-weight:600}
+  select,.btn{width:100%;font:inherit;border-radius:8px}
+  select{background:var(--panel2);color:var(--text);border:1px solid var(--line2);padding:10px 12px}
+  select:disabled,input:disabled{opacity:.55}
+  .btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  .btn{border:1px solid var(--line2);background:var(--panel2);color:var(--text);padding:10px 12px;cursor:pointer;font-weight:600}
+  .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  .btn:hover:not(:disabled){filter:brightness(1.12)}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  input[type=range]{width:100%;accent-color:var(--blue2);margin:8px 0 0}
+  .chk{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-size:12px;color:var(--muted)}
+  .chk input{margin-top:2px}
+  .prog{height:6px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:16px}
+  .prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--green));transition:width .4s}
+  #runmsg{font-size:12px;color:var(--muted);margin-top:8px;min-height:18px}
+  #runmsg.err{color:#ffa3a3}
+  .note{font-size:11px;color:var(--faint);margin-top:12px;line-height:1.5}
+  .srv h3{margin:0;font-size:15px;display:flex;align-items:center;gap:8px}
+  .srv h3 i{width:10px;height:10px;border-radius:3px;background:var(--c)}
+  .srv .top{display:flex;justify-content:space-between;align-items:center}
+  .chip{font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid}
+  .chip.low{color:#7be3bb;border-color:#1c6a52;background:#0c2a27}
+  .chip.mid{color:#f6cb86;border-color:#6d4d17;background:#2a2112}
+  .chip.high{color:#ffa3a3;border-color:#7a2b2b;background:#2c1517}
+  .bar{height:8px;background:var(--panel2);border-radius:5px;margin:14px 0 10px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:var(--c);transition:width .5s}
+  .ur{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+  .ur b{color:var(--text)}
+  .mini{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;margin-top:12px}
+  .mini .l{font-size:11px;color:var(--faint)}
+  .mini .v{font-size:15px;font-weight:600}
+  svg text{font-family:inherit}
+  .chartsvg{width:100%;height:auto;display:block;margin-top:10px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{font-weight:600;text-align:left;color:var(--muted);font-size:12px;padding:8px 10px;border-bottom:1px solid var(--line2)}
+  td{padding:9px 10px;border-bottom:1px solid var(--line)}
+  td.num,th.num{text-align:right}
+  .best{color:#7be3bb;font-weight:700}
+  .scroll{overflow-x:auto}
+  h4{margin:22px 0 6px;font-size:13px;color:var(--muted);font-weight:600}
+  .links{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .links a,.links button{color:var(--blue2);font-size:12px;text-decoration:none;background:none;border:0;cursor:pointer;padding:0;font-family:inherit}
+  .links a:hover,.links button:hover{text-decoration:underline}
+  .log{display:grid;gap:6px;margin-top:12px;max-height:340px;overflow:auto}
+  .log div{display:flex;gap:14px;background:var(--panel2);border-left:3px solid var(--line2);border-radius:6px;padding:8px 12px;font-size:12px}
+  .log div.assign{border-left-color:var(--blue2)}
+  .log div.error{border-left-color:var(--red);color:#ffb4b4}
+  .log time{color:var(--muted);flex:none}
+  .foot{margin-top:22px;text-align:center;font-size:11px;color:var(--faint)}
+  .empty{color:var(--faint);font-size:12px;padding:6px 0}
+  @media (max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2,.charts{grid-template-columns:1fr}}
+  .sep{border:0;border-top:1px solid var(--line);margin:18px 0 4px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Computer Networks · CS3001</div>
+      <h1>SDN Load Balancer</h1>
+      <div class="sub">SDN controller (OS-Ken) · OpenFlow 1.3 · Mininet · Open vSwitch</div>
+    </div>
+    <div class="pill warn" id="conn" role="status"><i></i><span>Connecting…</span></div>
+  </header>
+
+  <div class="banner" id="banner" role="status"></div>
+
+  <section class="kpis" aria-label="Key metrics">
+    <div class="card kpi"><div class="l">Assigned connections</div><div class="v" id="k-assigned">0</div><div class="s" id="k-assigned-s"></div></div>
+    <div class="card kpi"><div class="l">Active connections</div><div class="v" id="k-active">0</div><div class="s">live flows in the switch</div></div>
+    <div class="card kpi"><div class="l">Jain's fairness (load ÷ capacity)</div><div class="v" id="k-jain">1.000</div><div class="s" id="k-jain-s">1.000 = every link equally loaded</div></div>
+    <div class="card kpi"><div class="l">Average response time</div><div class="v" id="k-rt">—</div><div class="s" id="k-rt-s">from successful curl requests</div></div>
+    <div class="card kpi"><div class="l">Aggregate throughput (iperf)</div><div class="v" id="k-tp">—</div><div class="s" id="k-tp-s">measured at the end of a run</div></div>
+  </section>
+
+  <section class="grid2">
+    <div class="card">
+      <div class="toolbar">
+        <div><h2>Network topology</h2><div class="hint" id="topo-hint">Live connection assignments</div></div>
+        <div style="display:flex;gap:8px">
+          <button class="tbtn" id="zin" aria-label="Zoom in">+</button>
+          <button class="tbtn" id="zout" aria-label="Zoom out">−</button>
+          <button class="tbtn" id="zfit">Fit view</button>
+        </div>
+      </div>
+      <svg id="topo" viewBox="0 0 760 400" role="img" aria-label="Network topology with controller, switch, clients and servers"></svg>
+      <div class="legend">
+        <span style="--c:#4f8dff">Client</span><span style="--c:#8b6cf0">Open vSwitch</span>
+        <span style="--c:#22c58b">Server</span><span style="--c:#d19a2b">Controller</span>
+        <span>Animated path appears on real new assignments</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Experiment controls</h2>
+      <div class="hint">Control the Mininet traffic workload</div>
+
+      <div class="lr" style="margin-top:14px"><span>Servers</span><b id="ns-v">3</b></div>
+      <input type="range" id="ns" min="2" max="6" value="3" aria-label="Number of servers">
+      <div class="lr"><span>Clients <span id="nc-max" style="color:var(--faint)"></span></span><b id="nc-v">4</b></div>
+      <input type="range" id="nc" min="1" max="7" value="4" aria-label="Number of clients">
+      <div class="btns" style="grid-template-columns:1fr"><button class="btn" id="topo-apply">Apply topology</button></div>
+      <div class="note" id="topo-note">Rebuilds the Mininet network (about 10-20 s). Max 10 hosts (servers + clients), 1 switch.</div>
+      <hr class="sep">
+
+      <label class="f" for="algo">Server selection algorithm <b id="algo-now" style="color:var(--green);font-weight:600"></b></label>
+      <select id="algo"></select>
+      <div class="btns">
+        <button class="btn primary" id="apply">Apply algorithm</button>
+        <button class="btn" id="reset">Reset counters</button>
+      </div>
+
+      <div class="lr"><span>HTTP request rate</span><b id="rate-v">16 req/s</b></div>
+      <input type="range" id="rate" min="1" max="60" value="16" aria-label="HTTP request rate">
+      <div class="lr"><span>Active clients <span id="cl-max" style="color:var(--faint)"></span></span><b id="cl-v">3</b></div>
+      <input type="range" id="clients" min="1" max="4" value="3" aria-label="Active clients">
+
+      <label class="f" for="dur">Experiment duration</label>
+      <select id="dur">
+        <option value="15">15 seconds</option><option value="30" selected>30 seconds</option>
+        <option value="60">60 seconds</option><option value="120">120 seconds</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="iperf" checked>
+        <span>Measure aggregate throughput with iperf after the HTTP phase (adds <span id="iperf-s">5</span> s)</span></label>
+
+      <div class="btns">
+        <button class="btn primary" id="start">Start traffic</button>
+        <button class="btn" id="stop" disabled>Stop</button>
+      </div>
+      <div class="prog"><i id="prog"></i></div>
+      <div id="runmsg" aria-live="polite"></div>
+      <div class="note">Start issues real <code>curl</code> requests from the Mininet client hosts to the VIP <span id="vip">10.0.0.100</span>.
+        Each run starts from zeroed counters so runs can be compared.</div>
+    </div>
+  </section>
+
+  <section class="row3" id="servers"></section>
+
+  <section class="charts">
+    <div class="card"><h2>Connection distribution</h2><div class="hint">Total connections assigned per server</div><svg class="chartsvg" id="ch-dist" viewBox="0 0 600 270"></svg></div>
+    <div class="card"><h2>Response time</h2><div class="hint">Mean of successful curl requests, per second of the run (ms)</div><svg class="chartsvg" id="ch-rt" viewBox="0 0 600 270"></svg></div>
+  </section>
+
+  <section class="card" style="margin-bottom:18px">
+    <div class="toolbar">
+      <div><h2>Experiment results</h2><div class="hint">Completed runs with the current number of servers, compared across the three algorithms (means over repeated runs)</div></div>
+      <div class="links">
+        <a href="/api/export/runs.csv" download>Export results CSV ↓</a>
+        <a href="/api/export/assignments.csv" download>Export assignments CSV ↓</a>
+        <button id="clear">Clear results</button>
+      </div>
+    </div>
+    <div class="scroll"><table id="cmp"></table></div>
+    <h4>Run history</h4>
+    <div class="scroll"><table id="hist"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Live event log</h2>
+    <div class="hint">Recent controller and traffic-driver events</div>
+    <div class="log" id="log"></div>
+  </section>
+
+  <div class="foot">Dashboard metrics come from the controller REST API or from curl / iperf output. Nothing is simulated or fabricated.</div>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const ALGO = {rr:'Round Robin', lc:'Least Connections', load:'Load-aware'};
+const PAL = ['#38bdf8','#34d399','#fb923c','#c084fc','#f472b6','#facc15'];
+const SCOL = new Proxy({}, {get:(_,n)=>PAL[((parseInt(String(n).replace(/\D/g,''))||1)-1) % PAL.length]});
+const srvNames = () => S.servers.map(s=>s.name);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const NS = 'http://www.w3.org/2000/svg';
+let S = null, lastAlgo = null, lastSeq = null, topoBuilt = '', cardsBuilt = '', topoDirty = false;
+
+/* ---------------------------------------------------------------- api */
+async function api(path, body){
+  try{
+    const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body||{})});
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok || j.ok === false) setMsg(j.error || ('request failed ('+r.status+')'), true);
+    else setMsg('');
+  }catch(e){ setMsg('GUI server unreachable', true); }
+  tick();
+}
+let msgText = '', msgErr = false, msgAt = 0;
+function setMsg(t, err){ msgText = t; msgErr = !!err; msgAt = Date.now(); $('#runmsg').textContent = t; $('#runmsg').className = err ? 'err' : ''; }
+
+/* ---------------------------------------------------------------- svg helpers */
+function el(tag, attrs, parent, text){
+  const e = document.createElementNS(NS, tag);
+  for(const k in (attrs||{})) e.setAttribute(k, attrs[k]);
+  if(text !== undefined) e.textContent = text;
+  if(parent) parent.appendChild(e);
+  return e;
+}
+function niceMax(v){
+  if(v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  for(const m of [1,2,2.5,5,10]) if(v <= m*p) return m*p;
+  return 10*p;
+}
+
+/* ---------------------------------------------------------------- topology */
+const POS = {};
+let zoom = 1;
+function buildTopo(){
+  const key = S.servers.map(s=>s.name).join()+'|'+S.clients.map(c=>c.name).join();
+  if(!S.servers.length || key === topoBuilt) return;
+  topoBuilt = key;
+  const svg = $('#topo'); svg.innerHTML = '';
+  const W = 760;
+  POS.ctl = {x:W/2, y:40}; POS.sw = {x:W/2, y:140};
+  const cs = Math.min(150, 700/Math.max(1,S.clients.length)), ss = Math.min(170, 700/Math.max(1,S.servers.length));
+  S.clients.forEach((c,i)=>{ POS[c.name] = {x:W/2+(i-(S.clients.length-1)/2)*cs, y:270}; });
+  S.servers.forEach((s,i)=>{ POS[s.name] = {x:W/2+(i-(S.servers.length-1)/2)*ss, y:360}; });
+  const links = el('g',{}, svg);
+  window.LINK = {};
+  el('line',{x1:POS.ctl.x,y1:POS.ctl.y,x2:POS.sw.x,y2:POS.sw.y,stroke:'#d19a2b','stroke-dasharray':'5 4','stroke-width':1.5}, links);
+  window.CTLLINE = el('line',{x1:POS.ctl.x,y1:POS.ctl.y,x2:POS.sw.x,y2:POS.sw.y,stroke:'#f2c36b','stroke-width':3,opacity:0}, links);
+  for(const n of [...S.clients.map(c=>c.name), ...S.servers.map(s=>s.name)]){
+    el('line',{x1:POS.sw.x,y1:POS.sw.y,x2:POS[n].x,y2:POS[n].y,stroke:'#31466b','stroke-width':1.3}, links);
+    LINK[n] = el('line',{x1:POS.sw.x,y1:POS.sw.y,x2:POS[n].x,y2:POS[n].y,stroke:'#7fb0ff','stroke-width':3.5,opacity:0}, links);
+  }
+  window.NODE = {};
+  const box = (id,label,fill,w,h)=>{
+    const g = el('g',{transform:`translate(${POS[id].x},${POS[id].y})`}, svg);
+    el('rect',{x:-w/2,y:-h/2,width:w,height:h,rx:6,fill,stroke:'#0b1424','stroke-width':2}, g);
+    el('text',{y:4,'text-anchor':'middle',fill:'#fff','font-size':11,'font-weight':600}, g, label);
+    NODE[id] = g; return g;
+  };
+  box('ctl','SDN Controller','#b8862a',130,34);
+  box('sw','Open vSwitch s1','#7a5cdc',140,34);
+  S.clients.forEach(c=>{
+    const g = el('g',{transform:`translate(${POS[c.name].x},${POS[c.name].y})`}, svg);
+    el('circle',{r:16,fill:'#4f8dff',stroke:'#0b1424','stroke-width':2}, g);
+    el('text',{y:4,'text-anchor':'middle',fill:'#fff','font-size':10,'font-weight':700}, g, c.name);
+    el('text',{y:32,'text-anchor':'middle',fill:'#8fa3c2','font-size':S.clients.length>6?8:10}, g, c.ip);
+    NODE[c.name] = g;
+  });
+  S.servers.forEach(s=>{
+    const g = el('g',{transform:`translate(${POS[s.name].x},${POS[s.name].y})`}, svg);
+    g.ring = el('circle',{r:23,fill:'none',stroke:SCOL[s.name]||'#22c58b','stroke-width':3,opacity:0}, g);
+    el('circle',{r:16,fill:'#1fb37f',stroke:'#0b1424','stroke-width':2}, g);
+    el('text',{y:4,'text-anchor':'middle',fill:'#fff','font-size':10,'font-weight':700}, g, s.name);
+    g.cap = el('text',{y:-30,'text-anchor':'middle',fill:'#8fa3c2','font-size':10}, g, s.capacity_mbps+' Mbit/s link');
+    g.util = el('text',{y:34,'text-anchor':'middle',fill:'#8fa3c2','font-size':10}, g, '');
+    NODE[s.name] = g;
+  });
+  window.DOTS = el('g',{}, svg);
+  window.dots = [];
+  applyZoom();
+}
+function applyZoom(){
+  const w = 760/zoom, h = 400/zoom;
+  $('#topo').setAttribute('viewBox', `${(760-w)/2} ${(400-h)/2} ${w} ${h}`);
+}
+$('#zin').onclick = ()=>{ zoom = Math.min(2.5, zoom*1.25); applyZoom(); };
+$('#zout').onclick = ()=>{ zoom = Math.max(.6, zoom/1.25); applyZoom(); };
+$('#zfit').onclick = ()=>{ zoom = 1; applyZoom(); };
+
+function updateTopo(){
+  if(!window.NODE) return;
+  const run = S.run, busy = run && ['draining','running','measuring'].includes(run.state);
+  const nActive = busy ? run.clients : +$('#clients').value;
+  S.clients.forEach((c,i)=>{ NODE[c.name].setAttribute('opacity', i < nActive ? 1 : .3); });
+  const rates = {};
+  ((S.controller.data||{}).servers||[]).forEach(s=>rates[s.name]=s.rate_mbps);
+  S.servers.forEach(s=>{
+    const u = (rates[s.name]||0)/s.capacity_mbps*100;
+    NODE[s.name].util.textContent = rates[s.name] === undefined ? '' : Math.min(100,u).toFixed(0)+'% util';
+  });
+}
+
+/* animate a packet along client -> switch -> server, only for real controller assignments */
+const ipToName = () => Object.fromEntries(S.clients.map(c=>[c.ip,c.name]));
+function spawnDot(clientName, srvName, delay){
+  if(!window.NODE || !POS[clientName] || !POS[srvName]) return;
+  window.dots.push({c:clientName, s:srvName, t0:performance.now()+delay, dur:750,
+    node: el('circle',{r:5,fill:'#ffd166',stroke:'#0b1424','stroke-width':1.5,opacity:0}, DOTS), flashed:false});
+  if(window.dots.length > 40){ const d = window.dots.shift(); d.node.remove(); }
+  if(!window.raf) window.raf = requestAnimationFrame(frame);
+}
+function frame(now){
+  window.raf = 0;
+  const live = [];
+  for(const d of window.dots){
+    const p = (now - d.t0) / d.dur;
+    if(p < 0){ live.push(d); continue; }
+    if(p >= 1){
+      d.node.remove();
+      NODE[d.s].ring.setAttribute('opacity', 1); NODE[d.s].ringT = now;
+      continue;
+    }
+    const a = POS[d.c], b = POS.sw, c = POS[d.s];
+    let x, y;
+    if(p < .5){ const q = p/.5; x = a.x+(b.x-a.x)*q; y = a.y+(b.y-a.y)*q; }
+    else { const q = (p-.5)/.5; x = b.x+(c.x-b.x)*q; y = b.y+(c.y-b.y)*q; }
+    d.node.setAttribute('cx', x); d.node.setAttribute('cy', y); d.node.setAttribute('opacity', 1);
+    if(!d.flashed){ d.flashed = true; window.CTLLINE.setAttribute('opacity', 1); window.CTLT = now; }
+    LINK[d.c].setAttribute('opacity', p < .5 ? 1 : .35);
+    LINK[d.s].setAttribute('opacity', p >= .5 ? 1 : .35);
+    live.push(d);
+  }
+  window.dots = live;
+  if(!live.length) for(const k in LINK) LINK[k].setAttribute('opacity', 0);
+  if(window.CTLT && now - window.CTLT > 250) window.CTLLINE.setAttribute('opacity', 0);
+  for(const s of S.servers){
+    const n = NODE[s.name];
+    if(n.ringT){ const o = 1 - (now - n.ringT)/500; n.ring.setAttribute('opacity', Math.max(0,o)); if(o <= 0) n.ringT = 0; }
+  }
+  if(live.length || S.servers.some(s=>NODE[s.name].ringT) || window.CTLT && now - window.CTLT <= 250) window.raf = requestAnimationFrame(frame);
+}
+function animateNew(ctl){
+  if(!ctl) return;
+  if(lastSeq === null || ctl.seq < lastSeq){ lastSeq = ctl.seq; return; }   // never replay history
+  const fresh = (ctl.events||[]).filter(e=>e.seq > lastSeq).reverse();     // oldest first
+  lastSeq = ctl.seq;
+  const names = ipToName();
+  const step = Math.max(1, Math.ceil(fresh.length/12));                      // keep the picture readable at high rates
+  fresh.forEach((e,i)=>{ if(i % step === 0 && names[e.client_ip]) spawnDot(names[e.client_ip], e.srv, (i/fresh.length)*450); });
+}
+
+/* ---------------------------------------------------------------- charts */
+function axes(svg, W, H, m, ymax, yfmt, nticks){
+  for(let i=0;i<=nticks;i++){
+    const v = ymax*i/nticks, y = H-m.b-(H-m.t-m.b)*i/nticks;
+    el('line',{x1:m.l,x2:W-m.r,y1:y,y2:y,stroke:i?'#1f2f4b':'#2a3d5e','stroke-width':1}, svg);
+    el('text',{x:m.l-8,y:y+4,'text-anchor':'end',fill:'#8fa3c2','font-size':11}, svg, yfmt(v));
+  }
+}
+function drawDist(){
+  const svg = $('#ch-dist'); svg.innerHTML = '';
+  const W=600,H=270,m={l:46,r:16,t:24,b:34};
+  const sv = ((S.controller.data||{}).servers) || S.servers.map(s=>({name:s.name,total:0}));
+  const ymax = niceMax(Math.max(1,...sv.map(s=>s.total)));
+  axes(svg,W,H,m,ymax,v=>Math.round(v*10)/10,4);
+  const bw = (W-m.l-m.r)/sv.length;
+  sv.forEach((s,i)=>{
+    const h = (H-m.t-m.b)*s.total/ymax, x = m.l+bw*i+bw*.22, w = bw*.56;
+    el('rect',{x,y:H-m.b-h,width:w,height:h,rx:4,fill:SCOL[s.name]||'#5b8cff'}, svg);
+    el('text',{x:x+w/2,y:H-m.b-h-7,'text-anchor':'middle',fill:'#e6edf8','font-size':13,'font-weight':600}, svg, s.total);
+    el('text',{x:x+w/2,y:H-10,'text-anchor':'middle',fill:'#8fa3c2','font-size':12}, svg, s.name);
+  });
+}
+function drawRt(){
+  const svg = $('#ch-rt'); svg.innerHTML = '';
+  const W=600,H=270,m={l:50,r:56,t:24,b:44};
+  const ser = S.run && S.run.series;
+  const n = ser ? ser.t.length : 0;
+  const all = ser ? [].concat(ser.all, ...srvNames().map(k=>ser[k]||[])).filter(v=>v!==null) : [];
+  const ymax = niceMax(all.length ? Math.max(...all) : 100);
+  const xmax = Math.max(S.run ? Math.min(S.run.duration, 300) : 30, n);
+  axes(svg,W,H,m,ymax,v=>Math.round(v),4);
+  const X = t => m.l + (W-m.l-m.r)*t/Math.max(1,xmax);
+  const Y = v => H-m.b-(H-m.t-m.b)*v/ymax;
+  for(let i=0;i<=5;i++){ const t = xmax*i/5; el('text',{x:X(t),y:H-m.b+16,'text-anchor':'middle',fill:'#8fa3c2','font-size':11}, svg, Math.round(t)+'s'); }
+  if(!n){ el('text',{x:W/2,y:H/2,'text-anchor':'middle',fill:'#62779a','font-size':13}, svg, 'No successful requests yet — press Start traffic'); }
+  const line = (vals, color, dash, label, w) => {
+    let d = '', pen = false, last = null;
+    vals.forEach((v,i)=>{ if(v===null){ pen = false; return; } d += (pen?'L':'M')+X(i+.5).toFixed(1)+' '+Y(v).toFixed(1)+' '; pen = true; last = [i,v]; });
+    if(!d) return;
+    el('path',{d,fill:'none',stroke:color,'stroke-width':w||2,'stroke-dasharray':dash||'','stroke-linejoin':'round'}, svg);
+    if(last) el('text',{x:X(last[0]+.5)+6,y:Y(last[1])+4,fill:color,'font-size':11,'font-weight':600}, svg, label);
+  };
+  if(ser){
+    // overlapping lines stay visible: the first server is drawn thickest and underneath, later ones thinner on top
+    srvNames().forEach((k,i)=>line(ser[k]||[], SCOL[k], '', '', Math.max(1.8, 6 - i*1.2)));
+    line(ser.all, '#e6edf8', '5 4', '', 2.4);
+  }
+  // legend
+  let lx = m.l;
+  [...srvNames().map(k=>[k,SCOL[k],'']),['all requests (avg)','#e6edf8','5 4']].forEach(([t,c,d])=>{
+    el('line',{x1:lx,x2:lx+18,y1:12,y2:12,stroke:c,'stroke-width':2.4,'stroke-dasharray':d}, svg);
+    el('text',{x:lx+23,y:16,fill:'#8fa3c2','font-size':11}, svg, t); lx += 26 + t.length*6;
+  });
+}
+
+/* ---------------------------------------------------------------- panels */
+function fmt(v, d, unit){ return v === null || v === undefined ? '—' : Number(v).toFixed(d)+(unit||''); }
+function renderHeader(){
+  const c = S.controller, d = c.data, pill = $('#conn');
+  let cls='warn', txt='Starting…';
+  if(S.phase === 'error'){ cls='bad'; txt='Start-up failed'; }
+  else if(!c.ok){ cls='bad'; txt='Controller unreachable'; }
+  else if(!d.switches){ cls='warn'; txt='Controller up · waiting for the switch'; }
+  else { cls='ok'; txt='Controller connected · '+d.switches+' switch(es)'; }
+  pill.className = 'pill '+cls; pill.querySelector('span').textContent = txt;
+  const b = $('#banner');
+  if(S.phase === 'error'){ b.className='banner bad show'; b.textContent = 'Start-up failed: '+S.message; }
+  else if(S.phase !== 'ready'){ b.className='banner show'; b.textContent = S.message || 'Starting…'; }
+  else if(S.message){ b.className='banner show'; b.textContent = S.message; }
+  else if(!c.ok){ b.className='banner bad show'; b.textContent = 'The controller REST API on port 8080 is not answering ('+c.error+').'; }
+  else b.className='banner';
+}
+function renderKpis(){
+  const d = S.controller.data, sv = d ? d.servers : [];
+  const tot = sv.reduce((a,s)=>a+s.total,0), act = sv.reduce((a,s)=>a+s.active,0);
+  $('#k-assigned').textContent = tot; $('#k-active').textContent = act;
+  $('#k-assigned-s').textContent = d ? 'since the last reset · '+(ALGO[d.algorithm]||d.algorithm) : '';
+  $('#k-jain').textContent = d ? d.jain_cap.toFixed(3) : '—';
+  $('#k-jain-s').textContent = d ? `by connection count: ${d.jain.toFixed(3)}` : '1.000 = every link equally loaded';
+  const r = S.run;
+  $('#k-rt').textContent = r && r.avg_ms !== null ? r.avg_ms.toFixed(0)+' ms' : '—';
+  $('#k-rt-s').textContent = r && r.sent ? `p95 ${fmt(r.p95_ms,0)} ms · ${r.ok} ok / ${r.failed} failed` + (r.skipped ? ` · ${r.skipped} not sent` : '') : 'from successful curl requests';
+  $('#k-tp').textContent = r && r.throughput_mbps !== null ? r.throughput_mbps.toFixed(1)+' Mbit/s' : '—';
+  $('#k-tp-s').textContent = r && r.throughput_mbps !== null ? 'iperf, '+Object.keys(r.iperf_each).length+' client(s) in parallel'
+                           : (r && r.state==='measuring' ? 'measuring…' : 'measured at the end of a run');
+}
+function renderControls(){
+  const d = S.controller.data, r = S.run;
+  const busy = !!r && ['draining','running','measuring'].includes(r.state);
+  const sel = $('#algo');
+  if(d && !sel.options.length){ d.algorithms.forEach(a=>sel.add(new Option(ALGO[a]||a, a))); }
+  if(d && d.algorithm !== lastAlgo){ lastAlgo = d.algorithm; sel.value = d.algorithm; }
+  $('#algo-now').textContent = d ? '· active: '+(ALGO[d.algorithm]||d.algorithm) : '';
+  const ctlOk = S.controller.ok && d;
+  $('#algo').disabled = busy || !ctlOk;
+  $('#apply').disabled = busy || !ctlOk;
+  $('#reset').disabled = busy || !ctlOk;
+  const ready = S.phase === 'ready';
+  for(const id of ['rate','clients','dur','iperf']) $('#'+id).disabled = busy;
+  for(const id of ['ns','nc','topo-apply']) $('#'+id).disabled = busy || !ready;
+  const nCl = S.clients.length || 1, cl = $('#clients');
+  cl.max = nCl; if(+cl.value > nCl) cl.value = nCl;
+  $('#cl-max').textContent = '(of '+nCl+')';
+  $('#rate').max = S.limits.rate[1];
+  syncTopoSliders();
+  $('#start').disabled = busy || S.phase !== 'ready' || !ctlOk || !d.switches;
+  $('#stop').disabled = !busy;
+  $('#rate-v').textContent = $('#rate').value+' req/s'; $('#cl-v').textContent = $('#clients').value;
+  $('#vip').textContent = S.vip; $('#iperf-s').textContent = S.iperf_seconds;
+  const p = $('#prog'); let txt = '';
+  if(r){
+    let frac = r.duration ? r.elapsed / r.duration : 0;
+    if(r.state === 'draining'){ frac = 0; txt = r.message || 'Preparing the run…'; }
+    else if(r.state === 'running') txt = `Running · ${Math.floor(r.elapsed)} / ${r.duration} s · ${r.sent} sent · ${r.ok} ok · ${r.failed} failed`;
+    else if(r.state === 'measuring'){ frac = 1; txt = `Measuring iperf throughput (${S.iperf_seconds} s)…`; }
+    else if(r.state === 'done'){ frac = 1; txt = `Run #${r.id} finished · ${r.ok}/${r.sent} requests ok`; }
+    else if(r.state === 'stopped') txt = `Run #${r.id} stopped`;
+    else if(r.state === 'error') txt = 'Run failed: '+r.message;
+    p.style.width = Math.min(100, frac*100)+'%';
+  } else p.style.width = '0';
+  if(!msgText) { $('#runmsg').textContent = txt; $('#runmsg').className = r && r.state==='error' ? 'err' : ''; }
+}
+function syncTopoSliders(){
+  const T = S.topology, ns = $('#ns'), nc = $('#nc');
+  ns.min = T.server_range[0]; ns.max = T.server_range[1];
+  if(!topoDirty && S.phase === 'ready'){ ns.value = T.servers; nc.value = T.clients; }
+  nc.max = T.max_hosts - (+ns.value); if(+nc.value > +nc.max) nc.value = nc.max;
+  $('#ns-v').textContent = ns.value; $('#nc-v').textContent = nc.value;
+  $('#nc-max').textContent = '(max '+nc.max+')';
+  const hosts = +ns.value + +nc.value;
+  $('#topo-note').textContent = `${ns.value} servers + ${nc.value} clients = ${hosts} hosts, 1 switch. Applying rebuilds the Mininet network (about 10-20 s); max ${T.max_hosts} hosts.`;
+  $('#topo-apply').textContent = (+ns.value === T.servers && +nc.value === T.clients) ? 'Topology is up to date' : 'Apply topology';
+}
+function renderServers(){
+  const d = S.controller.data, host = $('#servers');
+  const key = S.servers.map(s=>s.name+s.ip).join();
+  if(S.servers.length && key !== cardsBuilt){
+    cardsBuilt = key;
+    host.innerHTML = S.servers.map(s=>`<div class="card srv" id="sc-${s.name}" style="--c:${SCOL[s.name]}">
+      <div class="top"><h3><i></i>${esc(s.name)}</h3><span class="chip low">Low load</span></div>
+      <div class="hint">${esc(s.ip)} · ${s.capacity_mbps} Mbit/s link</div>
+      <div class="bar"><i></i></div>
+      <div class="ur"><span>Link utilization</span><b class="u">0.0%</b></div>
+      <div class="mini">
+        <div><div class="l">Active connections</div><div class="v a">0</div></div>
+        <div><div class="l">Assigned connections</div><div class="v t">0</div></div>
+        <div><div class="l">Traffic rate</div><div class="v r">0 Mbit/s</div></div>
+        <div><div class="l">Link capacity</div><div class="v c">${s.capacity_mbps} Mbit/s</div></div>
+      </div></div>`).join('');
+  }
+  if(!d) return;
+  for(const s of S.servers){
+    const c = $('#sc-'+s.name), v = d.servers.find(x=>x.name===s.name); if(!c || !v) continue;
+    const u = v.rate_mbps / s.capacity_mbps * 100;
+    c.querySelector('.bar i').style.width = Math.min(100,u)+'%';
+    c.querySelector('.u').textContent = Math.min(100,u).toFixed(1)+'%';
+    c.querySelector('.a').textContent = v.active; c.querySelector('.t').textContent = v.total;
+    c.querySelector('.r').textContent = v.rate_mbps.toFixed(2)+' Mbit/s';
+    const chip = c.querySelector('.chip');
+    chip.className = 'chip '+(u<50?'low':u<85?'mid':'high'); chip.textContent = u<50?'Low load':u<85?'Moderate load':'High load';
+  }
+}
+function best(rows, key, hi){
+  const v = rows.filter(r=>r[key]!==null && r.runs).map(r=>r[key]);
+  if(v.length < 2) return null;
+  return hi ? Math.max(...v) : Math.min(...v);
+}
+function renderResults(){
+  const rows = S.comparison;
+  const bRt = best(rows,'avg_ms',false), bTp = best(rows,'throughput_mbps',true), bJ = best(rows,'jain',true), bJc = best(rows,'jain_cap',true);
+  const cell = (v,b,d)=> v===null ? '—' : `<span class="${b!==null&&v===b?'best':''}">${v.toFixed(d)}${b!==null&&v===b?' ✓':''}</span>`;
+  $('#cmp').innerHTML = `<thead><tr><th>Algorithm</th><th class="num">Runs</th><th class="num">Avg response (ms)</th><th class="num">p95 (ms)</th>
+    <th class="num">Throughput (Mbit/s)</th><th class="num" title="connections spread evenly">Jain (connections)</th><th class="num" title="connections proportional to link capacity">Jain (load/capacity)</th><th class="num">${esc(srvNames().join(' / '))} share</th></tr></thead><tbody>`+
+    rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="num">${r.runs}</td><td class="num">${cell(r.avg_ms,bRt,1)}</td>
+      <td class="num">${fmt(r.p95_ms,1)}</td><td class="num">${cell(r.throughput_mbps,bTp,2)}</td><td class="num">${cell(r.jain,bJ,3)}</td><td class="num">${cell(r.jain_cap,bJc,3)}</td>
+      <td class="num">${r.runs ? srvNames().map(k=>fmt(r.share[k],1)+'%').join(' / ') : '—'}</td></tr>`).join('')+
+    `</tbody>`;
+  const h = S.runs.slice().reverse();
+  $('#hist').innerHTML = h.length ? `<thead><tr><th>#</th><th>Time</th><th>Algorithm</th><th class="num">Srv</th><th class="num">Clients</th><th class="num">Rate</th><th class="num">Dur.</th>
+    <th class="num">OK / sent</th><th class="num">Avg ms</th><th class="num">iperf Mbit/s</th><th class="num">Jain conn.</th><th class="num">Jain load/cap.</th><th class="num">Assigned per server</th><th>Status</th></tr></thead><tbody>`+
+    h.map(r=>`<tr><td>${r.id}</td><td>${esc(r.time.slice(11))}</td><td>${esc(ALGO[r.algorithm]||r.algorithm)}</td><td class="num">${r.servers}</td><td class="num">${r.clients}</td>
+      <td class="num">${r.rate}/s</td><td class="num">${r.duration}s</td><td class="num">${r.ok} / ${r.sent}</td><td class="num">${fmt(r.avg_ms,1)}</td>
+      <td class="num">${fmt(r.throughput_mbps,2)}</td><td class="num">${r.jain.toFixed(3)}</td><td class="num">${r.jain_cap.toFixed(3)}</td>
+      <td class="num">${Object.values(r.dist).join(' / ')}</td><td>${esc(r.status)}</td></tr>`).join('')+`</tbody>`
+    : `<tbody><tr><td class="empty">No runs yet. Pick an algorithm and press Start traffic. Repeat for each algorithm (ideally several times) to fill the comparison.</td></tr></tbody>`;
+}
+function renderLog(){
+  const names = ipToName(), ev = [];
+  for(const e of ((S.controller.data||{}).events||[]).slice(0,60))
+    ev.push({ts:e.ts, kind:'assign', t:e.t, msg:`${names[e.client_ip]||e.client_ip} (${e.client}) → ${e.srv} · ${ALGO[e.algo]||e.algo}`});
+  for(const e of S.log) ev.push(e);
+  ev.sort((a,b)=>b.ts-a.ts);
+  $('#log').innerHTML = ev.slice(0,60).map(e=>`<div class="${e.kind}"><time>${esc(e.t)}</time><span>${esc(e.msg)}</span></div>`).join('')
+    || '<div><span>No events yet.</span></div>';
+}
+
+/* ---------------------------------------------------------------- loop */
+async function tick(){
+  try{
+    S = await (await fetch('/api/state', {cache:'no-store'})).json();
+  }catch(e){
+    $('#conn').className = 'pill bad'; $('#conn').querySelector('span').textContent = 'GUI server unreachable';
+    return;
+  }
+  buildTopo(); renderHeader(); renderKpis(); renderControls(); renderServers(); updateTopo();
+  animateNew(S.controller.data); drawDist(); drawRt(); renderResults(); renderLog();
+}
+$('#apply').onclick = () => api('/api/algorithm', {algorithm: $('#algo').value});
+$('#reset').onclick = () => api('/api/reset');
+$('#start').onclick = () => api('/api/start', {rate:+$('#rate').value, clients:+$('#clients').value, duration:+$('#dur').value, iperf:$('#iperf').checked});
+$('#stop').onclick = () => api('/api/stop');
+$('#clear').onclick = () => { if(confirm('Remove all recorded experiment runs? (the CSV is kept as a .bak file)')) api('/api/clear'); };
+$('#rate').oninput = () => $('#rate-v').textContent = $('#rate').value+' req/s';
+$('#ns').oninput = () => { topoDirty = true; syncTopoSliders(); };
+$('#nc').oninput = () => { topoDirty = true; syncTopoSliders(); };
+$('#topo-apply').onclick = async () => { topoDirty = false; await api('/api/topology', {servers:+$('#ns').value, clients:+$('#nc').value}); };
+$('#clients').oninput = () => { $('#cl-v').textContent = $('#clients').value; if(S) updateTopo(); };
+setInterval(tick, 500); tick();
+setInterval(()=>{ if(msgText && Date.now()-msgAt > 6000) setMsg(''); }, 1000);
+</script>
+</body>
+</html>
