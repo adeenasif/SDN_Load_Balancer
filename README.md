@@ -24,7 +24,7 @@ cd ~/sdn-lb && LB_ALGO=load ~/sdn-venv/bin/osken-manager lb_controller.py
 sudo mn -c && cd ~/sdn-lb && sudo python3 test_load.py
 
 
-### 4. Implementing GUI (In Process)
+### 4. Implementing GUI 
 #### Terminal 1
 cd ~/sdn-lb && ~/sdn-venv/bin/osken-manager lb_controller.py
 
@@ -36,3 +36,31 @@ c1 sh -c 'for i in $(seq 12); do curl -s 10.0.0.100; done'
 
 #### Terminal 3
 cd ~/sdn-lb && sudo python3 gui_server.py
+
+OR 
+
+#### Terminal 1
+NORM MODE: cd ~/sdn-lb && ~/sdn-venv/bin/osken-manager lb_controller.py
+RAW MODE: cd ~/sdn-lb && LB_POLL=1 LB_IDLE=10 ~/sdn-venv/bin/osken-manager lb_controller.py
+
+#### Terminal 2
+sudo mn -c && cd ~/sdn-lb && sudo python3 topo.py
+
+on mininet CLI:
+c1 sh -c 'for i in $(seq 12); do curl -s 10.0.0.100; done'
+
+#### Terminal 3
+cd ~/sdn-lb && sudo python3 gui_server.py --no-controller
+
+
+### For plotting Graphs
+
+#### Install Dependencies
+
+sudo apt update
+sudo apt install python3-matplotlib -y
+sudo apt install python3-pandas -y
+
+#### Plot
+cd ~/sdn-lb && sudo python3 plot_results.py
+
