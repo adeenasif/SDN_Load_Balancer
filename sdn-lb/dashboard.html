@@ -410,9 +410,12 @@ function drawRt(){
   if(!n){ el('text',{x:W/2,y:H/2,'text-anchor':'middle',fill:'#62779a','font-size':13}, svg, 'No successful requests yet — press Start traffic'); }
   const line = (vals, color, dash, label, w) => {
     let d = '', pen = false, last = null;
-    vals.forEach((v,i)=>{ if(v===null){ pen = false; return; } d += (pen?'L':'M')+X(i+.5).toFixed(1)+' '+Y(v).toFixed(1)+' '; pen = true; last = [i,v]; });
+    // seconds with no successful request from this server have no value: join the real points instead of breaking the line
+    const pts = [];
+    vals.forEach((v,i)=>{ if(v===null) return; pts.push([i,v]); d += (pen?'L':'M')+X(i+.5).toFixed(1)+' '+Y(v).toFixed(1)+' '; pen = true; last = [i,v]; });
     if(!d) return;
     el('path',{d,fill:'none',stroke:color,'stroke-width':w||2,'stroke-dasharray':dash||'','stroke-linejoin':'round'}, svg);
+    if(!dash && pts.length < vals.length) pts.forEach(([i,v])=>el('circle',{cx:X(i+.5),cy:Y(v),r:2.2,fill:color}, svg));   // dots mark the seconds that really had data
     if(last) el('text',{x:X(last[0]+.5)+6,y:Y(last[1])+4,fill:color,'font-size':11,'font-weight':600}, svg, label);
   };
   if(ser){
