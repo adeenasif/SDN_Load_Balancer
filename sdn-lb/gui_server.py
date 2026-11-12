@@ -16,7 +16,7 @@ It   1) starts the Ryu/os-ken controller (lb_controller.py) if none is running,
 Every number in the GUI comes from the controller (REST API on :8080) or from curl / iperf
 output. Nothing is simulated.
 """
-import argparse, csv, json, os, re, shutil, signal, socket, subprocess, sys, threading, time
+import argparse, csv, json, os, random, re, shutil, signal, socket, subprocess, sys, threading, time
 import urllib.error, urllib.request
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -26,8 +26,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GUI_PORT = int(os.environ.get('GUI_PORT', '5000'))
 CTL_URL = os.environ.get('LB_URL', 'http://127.0.0.1:8080')
 RESULTS_CSV = os.environ.get('GUI_RESULTS', os.path.join(HERE, 'results.csv'))
+EVENTS_LOG = os.environ.get('GUI_EVENTS', os.path.join(HERE, 'events.log'))   # copy of the live event log
 
 VIP = '10.0.0.100'
+# Request-size workloads. 'uniform': every request fetches the same 40 KB page (every connection lasts about the same
+# time, so Least Connections degenerates into Round Robin). 'mixed': 80% small pages and 20% large pages, in a fixed
+# pseudo-random order that is identical for every algorithm, so connections have very different lifetimes.
+SMALL_KB, LARGE_KB, LARGE_SHARE, WORKLOAD_SEED = 10, 250, 0.2, 2026
+WORKLOADS = ('uniform', 'mixed')
 PAYLOAD_KB = 40            # size of the page the clients download; big enough that a 2 Mbit/s link matters
 PAGE = 'data.html'
 CURL_TIMEOUT = 8           # seconds, per request
@@ -37,7 +43,7 @@ LIMITS = {'rate': (1, 60), 'duration': (10, 300)}   # the clients limit depends 
 MAX_HOSTS = 10             # servers + clients (Sir: "max 10 nodes"); lower it to 9 if the switch must count too
 SERVER_RANGE = (2, 6)
 ALGO_NAMES = {'rr': 'Round Robin', 'lc': 'Least Connections', 'load': 'Load-aware'}
-RUN_FIELDS = ['run_id', 'time', 'algorithm', 'servers', 'clients', 'rate_req_s', 'duration_s', 'requests', 'ok', 'failed',
+RUN_FIELDS = ['run_id', 'time', 'algorithm', 'workload', 'servers', 'clients', 'rate_req_s', 'duration_s', 'requests', 'ok', 'failed',
               'skipped', 'avg_response_ms', 'p95_response_ms', 'throughput_mbps', 'assigned_per_server', 'jain', 'jain_capacity', 'status']
 
 
@@ -66,9 +72,14 @@ def port_open(port, host='127.0.0.1'):
 class Gui:
     """All GUI state. `hosts` need .name and .popen() (Mininet hosts, or stand-ins in tests)."""
 
-    def __init__(self, ctl_url=CTL_URL, vip=VIP, page=PAGE, servers=None, clients=None, results_csv=RESULTS_CSV):
+    def __init__(self, ctl_url=CTL_URL, vip=VIP, page=PAGE, servers=None, clients=None, results_csv=RESULTS_CSV,
+                 events_log=EVENTS_LOG):
         self.ctl_url, self.vip, self.page = ctl_url, vip, page
         self.results_csv = results_csv
+        self.events_log = events_log          # every live-log line is also appended here (see _log_line)
+        self._ev_lock = threading.Lock()
+        self._ev_file = None
+        self._last_ev_seq = 0                 # newest controller assignment already written to the file
         self.lock = threading.RLock()
         self.phase, self.message = 'starting', 'Starting...'
         self.servers_info = servers or []     # [{'name','ip','capacity_mbps'}]
@@ -76,6 +87,7 @@ class Gui:
         self.hosts = {}                       # name -> Mininet host
         self.net = None
         self.controller_proc = None
+        self.view_workload = 'uniform'        # the results table compares runs that used the latest run's request sizes
         self.ctl, self.ctl_ok, self.ctl_err = None, False, 'not contacted yet'
         self.run, self.runs = None, []
         self.log_events = deque(maxlen=200)
@@ -85,11 +97,43 @@ class Gui:
         self.pool = ThreadPoolExecutor(max_workers=MAX_INFLIGHT)
         self.run_counter = 0
         self._load_runs()
+        if self.runs:
+            self.view_workload = self.runs[-1]['workload']
 
     # ------------------------------------------------------------------ helpers
     def say(self, kind, msg):
+        now = time.time()
         with self.lock:
-            self.log_events.appendleft({'ts': time.time(), 't': time.strftime('%H:%M:%S'), 'kind': kind, 'msg': msg})
+            self.log_events.appendleft({'ts': now, 't': time.strftime('%H:%M:%S'), 'kind': kind, 'msg': msg})
+        self._log_line(now, kind, msg)
+
+    # ---- live event log -> file (events.log): the same lines the dashboard shows, none dropped by the 60-line view
+    def _log_line(self, ts, kind, msg):
+        line = '%s  %-6s  %s\n' % (time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts)), kind.upper(), msg)
+        with self._ev_lock:
+            try:
+                if self._ev_file is None:
+                    self._ev_file = open(self.events_log, 'a', encoding='utf-8', buffering=1)
+                    self._ev_file.write('# --- GUI session started %s ---\n' % time.strftime('%Y-%m-%d %H:%M:%S'))
+                self._ev_file.write(line)
+            except OSError:
+                pass                      # a full disk or read-only folder must never stop the experiment
+
+    def _log_assignments(self, snap):
+        """Write controller assignment events not written yet (oldest first), formatted exactly like the live log."""
+        events = snap.get('events') or []
+        if not events:
+            return
+        if events[0].get('seq', 0) < self._last_ev_seq:      # controller was restarted: its counter started again
+            self._last_ev_seq = 0
+        names = {c['ip']: c['name'] for c in self.clients_info}
+        for e in reversed(events):
+            if e.get('seq', 0) <= self._last_ev_seq:
+                continue
+            self._last_ev_seq = e['seq']
+            self._log_line(e.get('ts', time.time()), 'assign', '%s (%s) \u2192 %s \u00b7 %s' % (
+                names.get(e.get('client_ip'), e.get('client_ip')), e.get('client'), e.get('srv'),
+                ALGO_NAMES.get(e.get('algo'), e.get('algo'))))
 
     def set_phase(self, phase, message=''):
         with self.lock:
@@ -112,6 +156,7 @@ class Gui:
                 snap = self.ctl_get('/lb/stats')
                 with self.lock:
                     self.ctl, self.ctl_ok, self.ctl_err = snap, True, ''
+                self._log_assignments(snap)
             except Exception as e:
                 with self.lock:
                     self.ctl_ok, self.ctl_err = False, str(getattr(e, 'reason', e))
@@ -129,6 +174,7 @@ class Gui:
                             dist = {s: int(row[s]) for s in ('srv1', 'srv2', 'srv3')}
                         self.runs.append({
                             'id': int(row['run_id']), 'time': row['time'], 'algorithm': row['algorithm'],
+                            'workload': row.get('workload') or 'uniform',
                             'servers': len(dist), 'skipped': int(row.get('skipped') or 0),
                             'clients': int(row['clients']), 'rate': int(row['rate_req_s']),
                             'duration': int(row['duration_s']), 'sent': int(row['requests']),
@@ -167,7 +213,7 @@ class Gui:
             w = csv.writer(f)
             if new:
                 w.writerow(RUN_FIELDS)
-            w.writerow([r['id'], r['time'], r['algorithm'], r['servers'], r['clients'], r['rate'], r['duration'],
+            w.writerow([r['id'], r['time'], r['algorithm'], r['workload'], r['servers'], r['clients'], r['rate'], r['duration'],
                         r['sent'], r['ok'], r['failed'], r['skipped'],
                         '' if r['avg_ms'] is None else r['avg_ms'],
                         '' if r['p95_ms'] is None else r['p95_ms'],
@@ -191,7 +237,7 @@ class Gui:
         for algo in ('rr', 'lc', 'load'):
             # only runs made with the current number of servers are comparable
             rs = [r for r in self.runs if r['algorithm'] == algo and r['status'] == 'completed'
-                  and r['servers'] == len(names)]
+                  and r['servers'] == len(names) and r['workload'] == self.view_workload]
             def mean(key):
                 v = [r[key] for r in rs if r[key] is not None]
                 return round(sum(v) / len(v), 3) if v else None
@@ -212,7 +258,7 @@ class Gui:
                 n = run['rt_n']
                 srt = sorted(run['rt_list'])
                 series = self._series(run)
-                r = {k: run[k] for k in ('id', 'state', 'algorithm', 'clients', 'rate', 'duration', 'iperf', 'sent',
+                r = {k: run[k] for k in ('id', 'state', 'algorithm', 'clients', 'rate', 'duration', 'iperf', 'sent', 'workload',
                                          'ok', 'failed', 'skipped', 'inflight', 'throughput_mbps', 'iperf_each', 'message', 'dist',
                                          'jain', 'jain_cap')}
                 r['elapsed'] = round(run['elapsed'], 1)
@@ -276,7 +322,7 @@ class Gui:
         self.say('info', 'Controller counters reset')
         return 200, {'ok': True}
 
-    def start(self, rate, clients, duration, iperf):
+    def start(self, rate, clients, duration, iperf, workload='uniform'):
         try:                                   # fresh read: the cached snapshot can be up to 0.5 s old
             fresh = self.ctl_get('/lb/stats')
             with self.lock:
@@ -291,7 +337,8 @@ class Gui:
             if not self.ctl_ok or not self.ctl or not self.ctl.get('switches'):
                 return 409, {'ok': False, 'error': 'Controller is not connected to the switch'}
             self.run_counter += 1
-            self.run = {'id': self.run_counter, 'state': 'draining', 'algorithm': self.ctl['algorithm'],
+            self.view_workload = workload
+            self.run = {'id': self.run_counter, 'state': 'draining', 'algorithm': self.ctl['algorithm'], 'workload': workload,
                         'clients': clients, 'rate': rate, 'duration': duration, 'iperf': iperf,
                         'sent': 0, 'ok': 0, 'failed': 0, 'skipped': 0, 'inflight': 0,
                         'srv_names': [s['name'] for s in self.servers_info], 'elapsed': 0.0,
@@ -375,6 +422,7 @@ class Gui:
         interval = 1.0 / run['rate']
         t0 = time.monotonic()
         i = 0
+        rng = random.Random(WORKLOAD_SEED)    # same size sequence in every run, whatever the algorithm
         while not self.stop_event.is_set():
             now = time.monotonic()
             run['elapsed'] = now - t0
@@ -386,13 +434,16 @@ class Gui:
                 continue
             host = hosts[i % n_cl]
             i += 1
+            page = self.page
+            if run['workload'] == 'mixed':
+                page = 'large.html' if rng.random() < LARGE_SHARE else 'small.html'
             with self.lock:
                 if run['inflight'] >= MAX_INFLIGHT:      # the generator itself is saturated: not a network failure
                     run['skipped'] += 1
                     continue
                 run['sent'] += 1
                 run['inflight'] += 1
-            self.pool.submit(self._request, run, host, t0)
+            self.pool.submit(self._request, run, host, t0, page)
 
         # let requests that are already in flight finish
         deadline = time.time() + CURL_TIMEOUT + 2
@@ -422,6 +473,7 @@ class Gui:
         with self.lock:
             n, srt = run['rt_n'], sorted(run['rt_list'])
             rec = {'id': run['id'], 'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'algorithm': run['algorithm'],
+                   'workload': run['workload'],
                    'clients': run['clients'], 'rate': run['rate'], 'duration': run['duration'],
                    'sent': run['sent'], 'ok': run['ok'], 'failed': run['failed'], 'skipped': run['skipped'],
                    'servers': len(run['srv_names']),
@@ -443,9 +495,9 @@ class Gui:
             self.say('error', '%d requests were not sent: more than %d curl processes were already running '
                               '(the load generator, not the network, was saturated)' % (run['skipped'], MAX_INFLIGHT))
 
-    def _request(self, run, host, t0):
+    def _request(self, run, host, t0, page=None):
         cmd = ['curl', '-s', '--max-time', str(CURL_TIMEOUT), '-w', '\n@@%{time_total}@@%{http_code}',
-               'http://%s/%s' % (self.vip, self.page)]
+               'http://%s/%s' % (self.vip, page or self.page)]
         srv, rt_ms, ok = None, None, False
         try:
             p = host.popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -591,10 +643,10 @@ class Gui:
         self.set_phase('starting', 'Starting web servers and iperf on the servers...')
         topo.start_servers(servers)
         for s in servers:                                   # the page that clients download
-            path = '/tmp/%s/%s' % (s.name, self.page)
             head = 'Hello from %s\n' % s.name
-            with open(path, 'w') as f:
-                f.write(head + 'x' * max(0, PAYLOAD_KB * 1024 - len(head)))
+            for fname, kb in ((self.page, PAYLOAD_KB), ('small.html', SMALL_KB), ('large.html', LARGE_KB)):
+                with open('/tmp/%s/%s' % (s.name, fname), 'w') as f:
+                    f.write(head + 'x' * max(0, kb * 1024 - len(head)))
         time.sleep(1)
 
         self.set_phase('starting', 'Letting the controller learn host ports (pingAll)...')
@@ -690,7 +742,7 @@ def ensure_controller():
         print('[gui] a controller is already listening on :6653, using it')
         return None
     env = dict(os.environ)
-    env.setdefault('LB_IDLE', '10')      # flows expire 10 s after a connection ends (faster demo; proposal: "idle rules expire")
+    env.setdefault('LB_IDLE', '2')       # flows expire 2 s after a connection ends, so Least Connections counts open connections
     env.setdefault('LB_POLL', '1')       # port statistics every second
     script = os.path.join(HERE, 'lb_controller.py')
     candidates = []
@@ -788,8 +840,11 @@ class Handler(BaseHTTPRequestHandler):
                     vals[k] = int(body.get(k))
                     if not lo <= vals[k] <= hi:
                         return self._send(400, {'ok': False, 'error': '%s must be %d..%d' % (k, lo, hi)})
+                workload = body.get('workload', 'uniform')
+                if workload not in WORKLOADS:
+                    return self._send(400, {'ok': False, 'error': 'workload must be one of %s' % (WORKLOADS,)})
                 return self._send(*GUI.start(vals['rate'], vals['clients'], vals['duration'],
-                                             bool(body.get('iperf', True))))
+                                             bool(body.get('iperf', True)), workload))
         except (TypeError, ValueError):
             return self._send(400, {'ok': False, 'error': 'bad request'})
         except Exception as e:
