@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SDN Load Balancer | Network Dashboard</title>
+<script>try{if(localStorage.getItem('sdn-theme')==='light')document.documentElement.setAttribute('data-theme','light')}catch(e){}</script>
 <style>
   :root{
     --bg:#0a1120; --panel:#0f1a2e; --panel2:#132038; --line:#1f2f4b; --line2:#2a3d5e;
@@ -11,42 +12,70 @@
     --blue:#2f6df6; --blue2:#5b8cff; --green:#22c58b; --amber:#f2a93b; --red:#ef5b5b; --purple:#8b6cf0;
     --s1:#38bdf8; --s2:#34d399; --s3:#fb923c;
     --r:12px;
+    --ok-fg:#7be3bb; --ok-bd:#1c6a52; --ok-bg:#0c2a27;
+    --warn-fg:#f6cb86; --warn-bd:#6d4d17; --warn-bg:#2a2112;
+    --bad-fg:#ffa3a3; --bad-bd:#7a2b2b; --bad-bg:#2c1517; --bad-text:#ffb4b4;
+    --topo-bg:#0b1424; --topo-dot:#1a2a45;
+    --svg-muted:#8fa3c2; --svg-faint:#62779a; --svg-text:#e6edf8; --svg-link:#31466b;
+    --svg-grid:#1f2f4b; --svg-grid2:#2a3d5e; --svg-link-on:#7fb0ff; --svg-dot:#ffd166;
   }
+  /* light theme: warm beige surfaces, slate text, steel/light-blue accents */
+  html[data-theme="light"]{
+    color-scheme:light;
+    --bg:#f3eee4; --panel:#fbf8f1; --panel2:#ece5d8; --line:#e2d9c8; --line2:#d0c4ac;
+    --text:#273244; --muted:#5b6778; --faint:#8b94a1;
+    --blue:#3d6fa3; --blue2:#336a9f; --green:#2f8a67; --amber:#b27a1c; --red:#bf4f4b; --purple:#6e5cb5;
+    --ok-fg:#1f6e50; --ok-bd:#a8d3bf; --ok-bg:#e2f1e9;
+    --warn-fg:#865712; --warn-bd:#e3c68c; --warn-bg:#f7ecd2;
+    --bad-fg:#a03a3a; --bad-bd:#e2b1ae; --bad-bg:#f7e2e0; --bad-text:#8f3030;
+    --topo-bg:#e6eff7; --topo-dot:#c3d6e8;
+    --svg-muted:#5b6778; --svg-faint:#8b94a1; --svg-text:#273244; --svg-link:#a9bfd6;
+    --svg-grid:#e2d9c8; --svg-grid2:#d0c4ac; --svg-link-on:#2f6a9f; --svg-dot:#d99a1e;
+  }
+  html[data-theme="light"] .card{box-shadow:0 1px 2px rgba(70,55,30,.06),0 6px 18px rgba(70,55,30,.05)}
+  html[data-theme="light"] .pill{box-shadow:0 1px 2px rgba(70,55,30,.06)}
+  /* chart / topology SVG colours are set by the script as attributes; these rules theme them (same values in dark) */
+  svg [fill="#8fa3c2"]{fill:var(--svg-muted)} svg [fill="#62779a"]{fill:var(--svg-faint)} svg [fill="#e6edf8"]{fill:var(--svg-text)}
+  svg [stroke="#e6edf8"]{stroke:var(--svg-text)} svg [stroke="#31466b"]{stroke:var(--svg-link)}
+  svg [stroke="#1f2f4b"]{stroke:var(--svg-grid)} svg [stroke="#2a3d5e"]{stroke:var(--svg-grid2)}
+  svg [stroke="#7fb0ff"]{stroke:var(--svg-link-on)} svg [fill="#ffd166"]{fill:var(--svg-dot)}
+  svg [stroke="#0b1424"]{stroke:var(--topo-bg)}
   *{box-sizing:border-box}
   html{color-scheme:dark}
-  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif;font-variant-numeric:tabular-nums}
-  .wrap{max-width:1280px;margin:0 auto;padding:22px 24px 40px}
+  body,.card,.pill,select,.btn,.tbtn,.log div{transition:background-color .25s,color .25s,border-color .25s}
+  body{margin:0;background:var(--bg);color:var(--text);font:15.5px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif;font-variant-numeric:tabular-nums}
+  .wrap{max-width:1760px;margin:0 auto;padding:22px 28px 40px}
   header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:22px}
-  .eyebrow{font-size:11px;letter-spacing:.14em;color:var(--blue2);font-weight:700;text-transform:uppercase}
-  h1{margin:4px 0 2px;font-size:28px;letter-spacing:-.01em}
-  .sub{color:var(--muted);font-size:12px}
-  .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;border:1px solid var(--line2);font-size:12px;background:var(--panel)}
+  .eyebrow{font-size:12.5px;letter-spacing:.14em;color:var(--blue2);font-weight:700;text-transform:uppercase}
+  h1{margin:4px 0 2px;font-size:32px;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:13.5px}
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;border:1px solid var(--line2);font-size:13.5px;background:var(--panel)}
   .pill i{width:8px;height:8px;border-radius:50%;background:var(--faint)}
-  .pill.ok{color:#7be3bb;border-color:#1c6a52;background:#0c2a27}.pill.ok i{background:var(--green)}
-  .pill.warn{color:#f6cb86;border-color:#6d4d17;background:#2a2112}.pill.warn i{background:var(--amber)}
-  .pill.bad{color:#ffa3a3;border-color:#7a2b2b;background:#2c1517}.pill.bad i{background:var(--red)}
-  .banner{display:none;margin:0 0 18px;padding:12px 16px;border-radius:var(--r);border:1px solid #6d4d17;background:#2a2112;color:#f6cb86}
-  .banner.bad{border-color:#7a2b2b;background:#2c1517;color:#ffb4b4}
+  .pill.ok{color:var(--ok-fg);border-color:var(--ok-bd);background:var(--ok-bg)}.pill.ok i{background:var(--green)}
+  .pill.warn{color:var(--warn-fg);border-color:var(--warn-bd);background:var(--warn-bg)}.pill.warn i{background:var(--amber)}
+  .pill.bad{color:var(--bad-fg);border-color:var(--bad-bd);background:var(--bad-bg)}.pill.bad i{background:var(--red)}
+  .banner{display:none;margin:0 0 18px;padding:12px 16px;border-radius:var(--r);border:1px solid var(--warn-bd);background:var(--warn-bg);color:var(--warn-fg)}
+  .banner.bad{border-color:var(--bad-bd);background:var(--bad-bg);color:var(--bad-text)}
   .banner.show{display:block}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px}
-  .card h2{margin:0;font-size:15px}
-  .card .hint{color:var(--muted);font-size:12px;margin-top:2px}
+  .card h2{margin:0;font-size:17px}
+  .card .hint{color:var(--muted);font-size:13.5px;margin-top:2px}
   .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:18px}
-  .kpi .l{font-size:12px;color:var(--muted)}
-  .kpi .v{font-size:28px;font-weight:700;margin-top:6px;letter-spacing:-.01em}
-  .kpi .s{font-size:11px;color:var(--faint);margin-top:2px;min-height:15px}
+  .kpi .l{font-size:13.5px;color:var(--muted)}
+  .kpi .v{font-size:32px;font-weight:700;margin-top:6px;letter-spacing:-.01em}
+  .kpi .s{font-size:12.5px;color:var(--faint);margin-top:2px;min-height:15px}
   .grid2{align-items:start;display:grid;grid-template-columns:minmax(0,1.9fr) minmax(300px,1fr);gap:18px;margin-bottom:18px}
   .row3{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-bottom:18px}
   .charts{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
   .toolbar{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-  .tbtn{background:var(--panel2);border:1px solid var(--line2);color:var(--text);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer}
+  .tbtn{background:var(--panel2);border:1px solid var(--line2);color:var(--text);border-radius:8px;padding:7px 14px;font-size:14.5px;cursor:pointer}
   .tbtn:hover{border-color:var(--blue2)}
   #topo{width:100%;height:auto;display:block;margin-top:12px;border:1px solid var(--line);border-radius:10px;background:
-        radial-gradient(circle at 1px 1px,#1a2a45 1px,transparent 0) 0 0/22px 22px,#0b1424}
-  .legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;font-size:12px;color:var(--muted)}
+        radial-gradient(circle at 1px 1px,var(--topo-dot) 1px,transparent 0) 0 0/22px 22px,var(--topo-bg)}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;font-size:13.5px;color:var(--muted)}
   .legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:var(--c)}
-  label.f{display:block;font-size:12px;color:var(--muted);margin:16px 0 6px}
-  .lr{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--muted);margin-top:18px}
+  label.f{display:block;font-size:13.5px;color:var(--muted);margin:16px 0 6px}
+  .lr{display:flex;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--muted);margin-top:18px}
   .lr b{color:var(--blue2);font-weight:600}
   select,.btn{width:100%;font:inherit;border-radius:8px}
   select{background:var(--panel2);color:var(--text);border:1px solid var(--line2);padding:10px 12px}
@@ -57,48 +86,59 @@
   .btn:hover:not(:disabled){filter:brightness(1.12)}
   .btn:disabled{opacity:.4;cursor:not-allowed}
   input[type=range]{width:100%;accent-color:var(--blue2);margin:8px 0 0}
-  .chk{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-size:12px;color:var(--muted)}
+  .chk{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-size:13.5px;color:var(--muted)}
   .chk input{margin-top:2px}
   .prog{height:6px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:16px}
   .prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--green));transition:width .4s}
-  #runmsg{font-size:12px;color:var(--muted);margin-top:8px;min-height:18px}
-  #runmsg.err{color:#ffa3a3}
-  .note{font-size:11px;color:var(--faint);margin-top:12px;line-height:1.5}
-  .srv h3{margin:0;font-size:15px;display:flex;align-items:center;gap:8px}
+  #runmsg{font-size:13.5px;color:var(--muted);margin-top:8px;min-height:18px}
+  #runmsg.err{color:var(--bad-fg)}
+  .note{font-size:12.5px;color:var(--faint);margin-top:12px;line-height:1.5}
+  .srv h3{margin:0;font-size:17px;display:flex;align-items:center;gap:8px}
   .srv h3 i{width:10px;height:10px;border-radius:3px;background:var(--c)}
   .srv .top{display:flex;justify-content:space-between;align-items:center}
-  .chip{font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid}
-  .chip.low{color:#7be3bb;border-color:#1c6a52;background:#0c2a27}
-  .chip.mid{color:#f6cb86;border-color:#6d4d17;background:#2a2112}
-  .chip.high{color:#ffa3a3;border-color:#7a2b2b;background:#2c1517}
+  .chip{font-size:12.5px;padding:2px 9px;border-radius:999px;border:1px solid}
+  .chip.low{color:var(--ok-fg);border-color:var(--ok-bd);background:var(--ok-bg)}
+  .chip.mid{color:var(--warn-fg);border-color:var(--warn-bd);background:var(--warn-bg)}
+  .chip.high{color:var(--bad-fg);border-color:var(--bad-bd);background:var(--bad-bg)}
   .bar{height:8px;background:var(--panel2);border-radius:5px;margin:14px 0 10px;overflow:hidden}
   .bar i{display:block;height:100%;width:0;background:var(--c);transition:width .5s}
-  .ur{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+  .ur{display:flex;justify-content:space-between;font-size:13.5px;color:var(--muted)}
   .ur b{color:var(--text)}
   .mini{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;margin-top:12px}
-  .mini .l{font-size:11px;color:var(--faint)}
-  .mini .v{font-size:15px;font-weight:600}
+  .mini .l{font-size:12.5px;color:var(--faint)}
+  .mini .v{font-size:16.5px;font-weight:600}
   svg text{font-family:inherit}
   .chartsvg{width:100%;height:auto;display:block;margin-top:10px}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th{font-weight:600;text-align:left;color:var(--muted);font-size:12px;padding:8px 10px;border-bottom:1px solid var(--line2)}
+  table{width:100%;border-collapse:collapse;font-size:14.5px}
+  th{font-weight:600;text-align:left;color:var(--muted);font-size:13.5px;padding:8px 10px;border-bottom:1px solid var(--line2)}
   td{padding:9px 10px;border-bottom:1px solid var(--line)}
   td.num,th.num{text-align:right}
-  .best{color:#7be3bb;font-weight:700}
+  .best{color:var(--ok-fg);font-weight:700}
   .scroll{overflow-x:auto}
-  h4{margin:22px 0 6px;font-size:13px;color:var(--muted);font-weight:600}
+  h4{margin:22px 0 6px;font-size:14.5px;color:var(--muted);font-weight:600}
   .links{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
-  .links a,.links button{color:var(--blue2);font-size:12px;text-decoration:none;background:none;border:0;cursor:pointer;padding:0;font-family:inherit}
+  .links a,.links button{color:var(--blue2);font-size:13.5px;text-decoration:none;background:none;border:0;cursor:pointer;padding:0;font-family:inherit}
   .links a:hover,.links button:hover{text-decoration:underline}
   .log{display:grid;gap:6px;margin-top:12px;max-height:340px;overflow:auto}
-  .log div{display:flex;gap:14px;background:var(--panel2);border-left:3px solid var(--line2);border-radius:6px;padding:8px 12px;font-size:12px}
+  .log div{display:flex;gap:14px;background:var(--panel2);border-left:3px solid var(--line2);border-radius:6px;padding:8px 12px;font-size:13.5px}
   .log div.assign{border-left-color:var(--blue2)}
-  .log div.error{border-left-color:var(--red);color:#ffb4b4}
+  .log div.error{border-left-color:var(--red);color:var(--bad-text)}
   .log time{color:var(--muted);flex:none}
-  .foot{margin-top:22px;text-align:center;font-size:11px;color:var(--faint)}
-  .empty{color:var(--faint);font-size:12px;padding:6px 0}
-  @media (max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2,.charts{grid-template-columns:1fr}}
-  .sep{border:0;border-top:1px solid var(--line);margin:18px 0 4px}
+  .foot{margin-top:22px;text-align:center;font-size:12.5px;color:var(--faint)}
+  .empty{color:var(--faint);font-size:13.5px;padding:6px 0}
+  .ctrl{margin-bottom:18px}
+  .ctrl-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0 30px;margin-top:4px}
+  .cg+.cg{border-left:1px solid var(--line);padding-left:30px}
+  .cg h3{margin:16px 0 0;font-size:12.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--blue2)}
+  .mainrow{display:flex;flex-direction:column;gap:18px;margin-bottom:18px}
+  /* centre the topology graph in its card, between the title bar and the legend */
+  .mainrow>.card:first-child{display:flex;flex-direction:column;width:60%;margin:0 auto}   /* same width as before, now centred */
+  .mainrow>.card:first-child .toolbar{margin-bottom:12px}
+  .mainrow>.card:first-child #topo{margin:auto 0}
+  .mainrow .row3{margin:0}
+  @media (max-width:1300px){.ctrl-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.cg+.cg{border-left:0;padding-left:0}.cg:nth-child(even){border-left:1px solid var(--line);padding-left:30px}}
+  @media (max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}.mainrow>.card:first-child{width:100%}}
+  @media (max-width:700px){.ctrl-grid{grid-template-columns:1fr}.cg:nth-child(even){border-left:0;padding-left:0}}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -110,7 +150,10 @@
       <h1>SDN Load Balancer</h1>
       <div class="sub">SDN controller (OS-Ken) · OpenFlow 1.3 · Mininet · Open vSwitch</div>
     </div>
-    <div class="pill warn" id="conn" role="status"><i></i><span>Connecting…</span></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="tbtn" id="theme" type="button" aria-pressed="false" title="Switch between dark and light mode">☀ Light mode</button>
+      <div class="pill warn" id="conn" role="status"><i></i><span>Connecting…</span></div>
+    </div>
   </header>
 
   <div class="banner" id="banner" role="status"></div>
@@ -123,7 +166,65 @@
     <div class="card kpi"><div class="l">Aggregate throughput (iperf)</div><div class="v" id="k-tp">—</div><div class="s" id="k-tp-s">measured at the end of a run</div></div>
   </section>
 
-  <section class="grid2">
+  <section class="card ctrl" aria-label="Experiment controls">
+    <h2>Experiment controls</h2>
+    <div class="hint">Control the Mininet traffic workload</div>
+    <div class="ctrl-grid">
+      <div class="cg">
+        <h3>Topology</h3>
+      <div class="lr" style="margin-top:14px"><span>Servers</span><b id="ns-v">3</b></div>
+      <input type="range" id="ns" min="2" max="6" value="3" aria-label="Number of servers">
+      <div class="lr"><span>Clients <span id="nc-max" style="color:var(--faint)"></span></span><b id="nc-v">4</b></div>
+      <input type="range" id="nc" min="1" max="7" value="4" aria-label="Number of clients">
+      <div class="btns" style="grid-template-columns:1fr"><button class="btn" id="topo-apply">Apply topology</button></div>
+      <div class="note" id="topo-note">Rebuilds the Mininet network (about 10-20 s). Max 10 hosts (servers + clients), 1 switch.</div>
+      </div>
+      <div class="cg">
+        <h3>Algorithm</h3>
+      <label class="f" for="algo">Server selection algorithm <b id="algo-now" style="color:var(--green);font-weight:600"></b></label>
+      <select id="algo"></select>
+      <div class="btns">
+        <button class="btn primary" id="apply">Apply algorithm</button>
+        <button class="btn" id="reset">Reset counters</button>
+      </div>
+
+      </div>
+      <div class="cg">
+        <h3>Traffic</h3>
+      <div class="lr"><span>HTTP request rate</span><b id="rate-v">16 req/s</b></div>
+      <input type="range" id="rate" min="1" max="60" value="16" aria-label="HTTP request rate">
+      <div class="lr"><span>Active clients <span id="cl-max" style="color:var(--faint)"></span></span><b id="cl-v">3</b></div>
+      <input type="range" id="clients" min="1" max="4" value="3" aria-label="Active clients">
+
+      <label class="f" for="dur">Experiment duration</label>
+      <select id="dur">
+        <option value="15">15 seconds</option><option value="30" selected>30 seconds</option>
+        <option value="60">60 seconds</option><option value="120">120 seconds</option>
+      </select>
+      <label class="f" for="wl">Request sizes</label>
+      <select id="wl">
+        <option value="uniform" selected>Uniform: every request 40 KB</option>
+        <option value="mixed">Mixed: 80% 10 KB, 20% 250 KB</option>
+      </select>
+      </div>
+      <div class="cg">
+        <h3>Run</h3>
+      <label class="chk"><input type="checkbox" id="iperf" checked>
+        <span>Measure aggregate throughput with iperf after the HTTP phase (adds <span id="iperf-s">5</span> s)</span></label>
+
+      <div class="btns">
+        <button class="btn primary" id="start">Start traffic</button>
+        <button class="btn" id="stop" disabled>Stop</button>
+      </div>
+      <div class="prog"><i id="prog"></i></div>
+      <div id="runmsg" aria-live="polite"></div>
+      <div class="note">Start issues real <code>curl</code> requests from the Mininet client hosts to the VIP <span id="vip">10.0.0.100</span>.
+        Each run starts from zeroed counters so runs can be compared.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="mainrow">
     <div class="card">
       <div class="toolbar">
         <div><h2>Network topology</h2><div class="hint" id="topo-hint">Live connection assignments</div></div>
@@ -140,51 +241,8 @@
         <span>Animated path appears on real new assignments</span>
       </div>
     </div>
-
-    <div class="card">
-      <h2>Experiment controls</h2>
-      <div class="hint">Control the Mininet traffic workload</div>
-
-      <div class="lr" style="margin-top:14px"><span>Servers</span><b id="ns-v">3</b></div>
-      <input type="range" id="ns" min="2" max="6" value="3" aria-label="Number of servers">
-      <div class="lr"><span>Clients <span id="nc-max" style="color:var(--faint)"></span></span><b id="nc-v">4</b></div>
-      <input type="range" id="nc" min="1" max="7" value="4" aria-label="Number of clients">
-      <div class="btns" style="grid-template-columns:1fr"><button class="btn" id="topo-apply">Apply topology</button></div>
-      <div class="note" id="topo-note">Rebuilds the Mininet network (about 10-20 s). Max 10 hosts (servers + clients), 1 switch.</div>
-      <hr class="sep">
-
-      <label class="f" for="algo">Server selection algorithm <b id="algo-now" style="color:var(--green);font-weight:600"></b></label>
-      <select id="algo"></select>
-      <div class="btns">
-        <button class="btn primary" id="apply">Apply algorithm</button>
-        <button class="btn" id="reset">Reset counters</button>
-      </div>
-
-      <div class="lr"><span>HTTP request rate</span><b id="rate-v">16 req/s</b></div>
-      <input type="range" id="rate" min="1" max="60" value="16" aria-label="HTTP request rate">
-      <div class="lr"><span>Active clients <span id="cl-max" style="color:var(--faint)"></span></span><b id="cl-v">3</b></div>
-      <input type="range" id="clients" min="1" max="4" value="3" aria-label="Active clients">
-
-      <label class="f" for="dur">Experiment duration</label>
-      <select id="dur">
-        <option value="15">15 seconds</option><option value="30" selected>30 seconds</option>
-        <option value="60">60 seconds</option><option value="120">120 seconds</option>
-      </select>
-      <label class="chk"><input type="checkbox" id="iperf" checked>
-        <span>Measure aggregate throughput with iperf after the HTTP phase (adds <span id="iperf-s">5</span> s)</span></label>
-
-      <div class="btns">
-        <button class="btn primary" id="start">Start traffic</button>
-        <button class="btn" id="stop" disabled>Stop</button>
-      </div>
-      <div class="prog"><i id="prog"></i></div>
-      <div id="runmsg" aria-live="polite"></div>
-      <div class="note">Start issues real <code>curl</code> requests from the Mininet client hosts to the VIP <span id="vip">10.0.0.100</span>.
-        Each run starts from zeroed counters so runs can be compared.</div>
-    </div>
+    <div class="side"><section class="row3" id="servers"></section></div>
   </section>
-
-  <section class="row3" id="servers"></section>
 
   <section class="charts">
     <div class="card"><h2>Connection distribution</h2><div class="hint">Total connections assigned per server</div><svg class="chartsvg" id="ch-dist" viewBox="0 0 600 270"></svg></div>
@@ -193,7 +251,7 @@
 
   <section class="card" style="margin-bottom:18px">
     <div class="toolbar">
-      <div><h2>Experiment results</h2><div class="hint">Completed runs with the current number of servers, compared across the three algorithms (means over repeated runs)</div></div>
+      <div><h2>Experiment results</h2><div class="hint">Completed runs with the current number of servers and the same request sizes as the latest run, compared across the three algorithms (means over repeated runs)</div></div>
       <div class="links">
         <a href="/api/export/runs.csv" download>Export results CSV ↓</a>
         <a href="/api/export/assignments.csv" download>Export assignments CSV ↓</a>
@@ -554,9 +612,9 @@ function renderResults(){
       <td class="num">${r.runs ? srvNames().map(k=>fmt(r.share[k],1)+'%').join(' / ') : '—'}</td></tr>`).join('')+
     `</tbody>`;
   const h = S.runs.slice().reverse();
-  $('#hist').innerHTML = h.length ? `<thead><tr><th>#</th><th>Time</th><th>Algorithm</th><th class="num">Srv</th><th class="num">Clients</th><th class="num">Rate</th><th class="num">Dur.</th>
+  $('#hist').innerHTML = h.length ? `<thead><tr><th>#</th><th>Time</th><th>Algorithm</th><th>Sizes</th><th class="num">Srv</th><th class="num">Clients</th><th class="num">Rate</th><th class="num">Dur.</th>
     <th class="num">OK / sent</th><th class="num">Avg ms</th><th class="num">iperf Mbit/s</th><th class="num">Jain conn.</th><th class="num">Jain load/cap.</th><th class="num">Assigned per server</th><th>Status</th></tr></thead><tbody>`+
-    h.map(r=>`<tr><td>${r.id}</td><td>${esc(r.time.slice(11))}</td><td>${esc(ALGO[r.algorithm]||r.algorithm)}</td><td class="num">${r.servers}</td><td class="num">${r.clients}</td>
+    h.map(r=>`<tr><td>${r.id}</td><td>${esc(r.time.slice(11))}</td><td>${esc(ALGO[r.algorithm]||r.algorithm)}</td><td>${esc(r.workload)}</td><td class="num">${r.servers}</td><td class="num">${r.clients}</td>
       <td class="num">${r.rate}/s</td><td class="num">${r.duration}s</td><td class="num">${r.ok} / ${r.sent}</td><td class="num">${fmt(r.avg_ms,1)}</td>
       <td class="num">${fmt(r.throughput_mbps,2)}</td><td class="num">${r.jain.toFixed(3)}</td><td class="num">${r.jain_cap.toFixed(3)}</td>
       <td class="num">${Object.values(r.dist).join(' / ')}</td><td>${esc(r.status)}</td></tr>`).join('')+`</tbody>`
@@ -585,7 +643,7 @@ async function tick(){
 }
 $('#apply').onclick = () => api('/api/algorithm', {algorithm: $('#algo').value});
 $('#reset').onclick = () => api('/api/reset');
-$('#start').onclick = () => api('/api/start', {rate:+$('#rate').value, clients:+$('#clients').value, duration:+$('#dur').value, iperf:$('#iperf').checked});
+$('#start').onclick = () => api('/api/start', {rate:+$('#rate').value, clients:+$('#clients').value, duration:+$('#dur').value, iperf:$('#iperf').checked, workload:$('#wl').value});
 $('#stop').onclick = () => api('/api/stop');
 $('#clear').onclick = () => { if(confirm('Remove all recorded experiment runs? (the CSV is kept as a .bak file)')) api('/api/clear'); };
 $('#rate').oninput = () => $('#rate-v').textContent = $('#rate').value+' req/s';
@@ -595,6 +653,21 @@ $('#topo-apply').onclick = async () => { topoDirty = false; await api('/api/topo
 $('#clients').oninput = () => { $('#cl-v').textContent = $('#clients').value; if(S) updateTopo(); };
 setInterval(tick, 500); tick();
 setInterval(()=>{ if(msgText && Date.now()-msgAt > 6000) setMsg(''); }, 1000);
+</script>
+<script>
+/* theme toggle: dark is the default, the choice is remembered when the browser allows storage */
+(function(){
+  const root = document.documentElement, btn = document.getElementById('theme');
+  function paint(){ const light = root.getAttribute('data-theme') === 'light';
+    btn.textContent = light ? '☾ Dark mode' : '☀ Light mode'; btn.setAttribute('aria-pressed', light ? 'true' : 'false'); }
+  btn.addEventListener('click', () => {
+    const light = root.getAttribute('data-theme') !== 'light';
+    if(light) root.setAttribute('data-theme','light'); else root.removeAttribute('data-theme');
+    try{ localStorage.setItem('sdn-theme', light ? 'light' : 'dark'); }catch(e){}
+    paint();
+  });
+  paint();
+})();
 </script>
 </body>
 </html>
