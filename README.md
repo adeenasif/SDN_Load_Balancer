@@ -48,7 +48,7 @@ by connection count (even split) and by load / link capacity (the fair measure w
 | `dashboard.html` | The web GUI |
 | `plot_results.py` | Report graphs from `results.csv` (pandas + matplotlib) |
 | `smoke_test.py`, `test_lc.py`, `test_load.py` | Command-line tests for Round Robin, Least Connections and Load-aware |
-| `results.csv`, `assignments.csv` | Generated: one row per experiment run / per connection assignment |
+| `results.csv`, `assignments.csv`, `events.log` | Generated: one row per experiment run / per connection assignment, every log shown live |
 
 
 ## 3. Requirements
@@ -114,6 +114,26 @@ Quick check from the Mininet CLI (`sudo python3 topo.py` without the GUI): `c1 s
 prints `Hello from srv1/srv2/srv3` in rotation under Round Robin.
 
 
+### Controller settings (environment variables)
+| Variable | Default | Meaning |
+|---|---|---|
+| `LB_ALGO` | `rr` | start algorithm: `rr`, `lc`, `load` (the GUI changes it at runtime) |
+| `LB_LOAD_MODE` | `norm` | Load-aware mode: `norm` or `raw` |
+| `LB_POLL` | `2` | seconds between port-stats requests (use `1` for tests) |
+| `LB_IDLE` | `30` | seconds before an idle flow expires (use `10` to shorten waits between runs) |
+| `LB_EST_MBIT` | `0.3` | Load-aware: Mbit assumed per new connection until stats show it (about 0.32 for the 40 KB page) |
+| `LB_PORT` | `8080` | controller REST port |
+| `LB_LOG` | `assignments.csv` | per-connection assignment log |
+ 
+### Why Least Connections needs `LB_IDLE=2` and "Mixed" request sizes
+Least Connections picks the server with the fewest active connections, and the controller counts a connection until
+its flow expires. If every request is identical (the **Uniform** workload) and flows linger for 10-30 s, every server
+holds the same number of lingering finished connections, so Least Connections rotates exactly like Round Robin and the
+two rows of the report are identical. To see the difference, use a short `LB_IDLE` (2) and the **Mixed** request-size
+workload (80% 10 KB, 20% 250 KB, same order for every algorithm). Long requests then keep connections open longer on
+some servers, Least Connections steers new requests away from them, and Round Robin does not.
+
+ 
 ### Using the dashboard
 1. Choose servers and clients, then **Apply topology** (rebuild takes about 10-20 s).
 2. Choose an algorithm and click **Apply algorithm** (**Reset counters** zeroes the statistics).
